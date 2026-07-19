@@ -1,0 +1,6 @@
+{
+  "name": "MINESEC Academic Co-Pilot",
+  "description": "An AI-powered full-stack co-pilot for Cameroonian teachers to index official MINESEC syllabi and automatically generate aligned, high-quality Lesson Plans using the Competency-Based Approach.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
