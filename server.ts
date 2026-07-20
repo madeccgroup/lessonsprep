@@ -7,7 +7,7 @@ import { v2 as cloudinary } from "cloudinary";
 import multer from "multer";
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
-const { PDFParse } = require("pdf-parse");
+const pdfParse = require("pdf-parse");
 import mammoth from "mammoth";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
@@ -695,9 +695,7 @@ async function downloadFileFromUrl(url: string, destPath: string): Promise<void>
 async function extractTextFromFile(filePath: string, fileType: string): Promise<string> {
   if (fileType.includes("pdf")) {
     const dataBuffer = fs.readFileSync(filePath);
-    const parser = new PDFParse({ data: dataBuffer });
-    const result = await parser.getText();
-    await parser.destroy();
+    const result = await pdfParse(dataBuffer);
     return result.text;
   } else if (fileType.includes("wordprocessingml") || fileType.includes("docx")) {
     const parsed = await mammoth.extractRawText({ path: filePath });

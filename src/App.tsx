@@ -1334,8 +1334,19 @@ export default function App() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to process and index the syllabus file.");
+        let errorMessage = "Failed to process and index the syllabus file.";
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch (e) {
+          try {
+            const textText = await response.text();
+            if (textText && textText.length < 500) {
+              errorMessage = textText;
+            }
+          } catch (err) {}
+        }
+        throw new Error(errorMessage);
       }
 
       setUploadProgress(100);
