@@ -200,6 +200,102 @@ function getImageDimensions(base64: string): Promise<{ width: number; height: nu
   });
 }
 
+// Helper: Convert legacy video tags and sanitize markdown media attachments
+function preprocessMarkdown(content: string): string {
+  if (!content) return "";
+  // 1. Convert <video controls src="URL" ...></video> or <video src="URL" ...></video> to [Interactive Video Illustration](URL)
+  let processed = content.replace(/<video[^>]+src=["']([^"']+)["'][^>]*>(?:<\/video>)?/gi, "[Interactive Video Illustration]($1)");
+  // 2. Convert <audio controls src="URL" ...></audio> or <audio src="URL" ...></audio> to [Audio Demonstration](URL)
+  processed = processed.replace(/<audio[^>]+src=["']([^"']+)["'][^>]*>(?:<\/audio>)?/gi, "[Audio Demonstration]($1)");
+  return processed;
+}
+
+// Custom Markdown renderers for premium multimedia displays
+const markdownComponents = {
+  img: ({ node, ...props }: any) => (
+    <div className="my-5 flex flex-col items-center">
+      <img
+        {...props}
+        className="max-h-96 w-auto rounded-xl border border-white/10 shadow-2xl object-contain bg-black/20 p-1"
+        referrerPolicy="no-referrer"
+        loading="lazy"
+      />
+      {props.alt && (
+        <span className="text-[10px] text-white/40 mt-2 font-mono italic text-center block">
+          {props.alt}
+        </span>
+      )}
+    </div>
+  ),
+  a: ({ node, ...props }: any) => {
+    const href = props.href || "";
+    const isCloudinary = href.includes("cloudinary.com") || href.includes("res.cloudinary.com");
+    if (isCloudinary) {
+      const isVideo = href.endsWith(".mp4") || href.endsWith(".webm") || href.endsWith(".mov") || href.includes("video/upload");
+      const isAudio = href.endsWith(".mp3") || href.endsWith(".wav") || href.endsWith(".ogg") || href.endsWith(".aac") || href.includes("raw/upload") || (href.includes("video/upload/v") && href.endsWith(".mp3"));
+      
+      if (isVideo) {
+        return (
+          <div className="my-5 p-4 rounded-xl border border-orange-500/20 bg-orange-500/5 space-y-2.5 max-w-2xl mx-auto shadow-lg">
+            <div className="flex items-center gap-2 text-orange-400 font-mono text-xs font-bold uppercase tracking-wider">
+              <span className="bg-orange-500/10 p-1 rounded flex items-center justify-center">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+              </span>
+              <span>CBA Video Illustration</span>
+            </div>
+            <video controls src={href} className="w-full max-h-96 rounded-lg bg-black border border-white/10 shadow-inner"></video>
+            <div className="flex justify-between items-center text-[9px] font-mono text-white/30 px-1">
+              <span className="truncate max-w-[70%] select-all">{href}</span>
+              <a href={href} target="_blank" rel="noopener noreferrer" className="hover:text-orange-400 underline transition-colors cursor-pointer">Open CDN</a>
+            </div>
+          </div>
+        );
+      }
+      
+      if (isAudio) {
+        return (
+          <div className="my-5 p-4 rounded-xl border border-purple-500/20 bg-purple-500/5 space-y-2.5 max-w-xl mx-auto shadow-lg">
+            <div className="flex items-center gap-2 text-purple-400 font-mono text-xs font-bold uppercase tracking-wider">
+              <span className="bg-purple-500/10 p-1 rounded flex items-center justify-center">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                </svg>
+              </span>
+              <span>Audio Demonstration / Explanation</span>
+            </div>
+            <audio controls src={href} className="w-full h-9 rounded"></audio>
+            <div className="flex justify-between items-center text-[9px] font-mono text-white/30 px-1">
+              <span className="truncate max-w-[70%] select-all">{href}</span>
+              <a href={href} target="_blank" rel="noopener noreferrer" className="hover:text-purple-400 underline transition-colors cursor-pointer">Open CDN</a>
+            </div>
+          </div>
+        );
+      }
+      
+      return (
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-cyan-500/20 bg-cyan-500/5 hover:bg-cyan-500/10 hover:border-cyan-500/40 text-cyan-400 transition-all font-mono text-xs font-bold my-1 cursor-pointer shadow-sm"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          <span>{props.children || "Download Attached Media File"}</span>
+        </a>
+      );
+    }
+    return (
+      <a href={href} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline hover:text-cyan-300 font-medium">
+        {props.children}
+      </a>
+    );
+  }
+};
+
 export default function App() {
   // Authentication & RBAC States
   const [user, setUser] = useState<any>(null);
@@ -853,9 +949,94 @@ export default function App() {
           continue;
         }
 
-        // Image match regex: ![alt](url)
+        // Media matches for Lecture PDF
+        const videoMatch = trimmed.match(/<video[^>]+src=["']([^"']+)["']/i) || 
+                           trimmed.match(/\[(?:Interactive\s+)?Video(?:\s+Illustration)?\]\((https?:\/\/[^\s)]+)\)/i);
+        const audioMatch = trimmed.match(/<audio[^>]+src=["']([^"']+)["']/i) || 
+                           trimmed.match(/\[(?:Audio\s+)?Demonstration\]\((https?:\/\/[^\s)]+)\)/i);
+        const fileMatch = trimmed.match(/\[Download\s+Attached\s+Media\s+File\]\((https?:\/\/[^\s)]+)\)/i) || 
+                          trimmed.match(/\[(?:Download|Attached)\s+[^\]]+\]\((https?:\/\/[^\s)]+)\)/i);
         const imgMatch = trimmed.match(/!\[([^\]]*)]\((https?:\/\/[^\s)]+)\)/);
-        if (imgMatch) {
+
+        if (videoMatch) {
+          const url = videoMatch[1];
+          const boxHeight = 35;
+          checkPageBreak(boxHeight + 10);
+          doc.setDrawColor(249, 115, 22); // orange-500
+          doc.setFillColor(254, 243, 199); // amber-100
+          doc.rect(margin, y, contentWidth, boxHeight, "FD");
+          
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(9);
+          doc.setTextColor(249, 115, 22);
+          doc.text("🎥 INTEGRATED INTERACTIVE VIDEO ILLUSTRATION", pageWidth / 2, y + 12, { align: "center" });
+          
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(8);
+          doc.setTextColor(60, 60, 60);
+          doc.text("Scan or click the link below to load this classroom presentation material:", pageWidth / 2, y + 19, { align: "center" });
+          
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(37, 99, 235);
+          doc.textWithLink("Open CDN Video Link", pageWidth / 2 - 15, y + 27, { url: url });
+          
+          y += boxHeight + 6;
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(10);
+          doc.setTextColor(30, 30, 30);
+        } else if (audioMatch) {
+          const url = audioMatch[1];
+          const boxHeight = 32;
+          checkPageBreak(boxHeight + 10);
+          doc.setDrawColor(168, 85, 247); // purple-500
+          doc.setFillColor(250, 245, 255); // purple-50
+          doc.rect(margin, y, contentWidth, boxHeight, "FD");
+          
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(9);
+          doc.setTextColor(168, 85, 247);
+          doc.text("🎵 INTEGRATED CLASSROOM AUDIO / DIALOGUE", pageWidth / 2, y + 11, { align: "center" });
+          
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(8);
+          doc.setTextColor(60, 60, 60);
+          doc.text("Offline-compatible explanation. Click to listen to explanation:", pageWidth / 2, y + 18, { align: "center" });
+          
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(37, 99, 235);
+          doc.textWithLink("Open CDN Audio Link", pageWidth / 2 - 15, y + 25, { url: url });
+          
+          y += boxHeight + 6;
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(10);
+          doc.setTextColor(30, 30, 30);
+        } else if (fileMatch) {
+          const url = fileMatch[1];
+          const boxHeight = 32;
+          checkPageBreak(boxHeight + 10);
+          doc.setDrawColor(14, 165, 233); // sky-500
+          doc.setFillColor(240, 249, 255); // sky-50
+          doc.rect(margin, y, contentWidth, boxHeight, "FD");
+          
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(9);
+          doc.setTextColor(14, 165, 233);
+          doc.text("📁 ATTACHED STUDY SHEET / RESOURCE FILE", pageWidth / 2, y + 11, { align: "center" });
+          
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(8);
+          doc.setTextColor(60, 60, 60);
+          doc.text("Click the link to download or view the reference material:", pageWidth / 2, y + 18, { align: "center" });
+          
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(37, 99, 235);
+          doc.textWithLink("Download Resource File", pageWidth / 2 - 20, y + 25, { url: url });
+          
+          y += boxHeight + 6;
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(10);
+          doc.setTextColor(30, 30, 30);
+        } else if (imgMatch) {
           const alt = imgMatch[1] || "Embedded Diagram";
           const url = imgMatch[2];
           
@@ -1623,9 +1804,94 @@ export default function App() {
             continue;
           }
 
-          // Image match regex: ![alt](url)
+          // Media matches for Lesson Plan PDF
+          const videoMatch = trimmed.match(/<video[^>]+src=["']([^"']+)["']/i) || 
+                             trimmed.match(/\[(?:Interactive\s+)?Video(?:\s+Illustration)?\]\((https?:\/\/[^\s)]+)\)/i);
+          const audioMatch = trimmed.match(/<audio[^>]+src=["']([^"']+)["']/i) || 
+                             trimmed.match(/\[(?:Audio\s+)?Demonstration\]\((https?:\/\/[^\s)]+)\)/i);
+          const fileMatch = trimmed.match(/\[Download\s+Attached\s+Media\s+File\]\((https?:\/\/[^\s)]+)\)/i) || 
+                            trimmed.match(/\[(?:Download|Attached)\s+[^\]]+\]\((https?:\/\/[^\s)]+)\)/i);
           const imgMatch = trimmed.match(/!\[([^\]]*)]\((https?:\/\/[^\s)]+)\)/);
-          if (imgMatch) {
+
+          if (videoMatch) {
+            const url = videoMatch[1];
+            const boxHeight = 35;
+            checkPageBreak(boxHeight + 10);
+            doc.setDrawColor(249, 115, 22); // orange-500
+            doc.setFillColor(254, 243, 199); // amber-100
+            doc.rect(margin, y, contentWidth, boxHeight, "FD");
+            
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(9);
+            doc.setTextColor(249, 115, 22);
+            doc.text("🎥 INTEGRATED INTERACTIVE VIDEO ILLUSTRATION", pageWidth / 2, y + 12, { align: "center" });
+            
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(8);
+            doc.setTextColor(60, 60, 60);
+            doc.text("Scan or click the link below to load this classroom presentation material:", pageWidth / 2, y + 19, { align: "center" });
+            
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(37, 99, 235);
+            doc.textWithLink("Open CDN Video Link", pageWidth / 2 - 15, y + 27, { url: url });
+            
+            y += boxHeight + 6;
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(9);
+            doc.setTextColor(30, 30, 30);
+          } else if (audioMatch) {
+            const url = audioMatch[1];
+            const boxHeight = 32;
+            checkPageBreak(boxHeight + 10);
+            doc.setDrawColor(168, 85, 247); // purple-500
+            doc.setFillColor(250, 245, 255); // purple-50
+            doc.rect(margin, y, contentWidth, boxHeight, "FD");
+            
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(9);
+            doc.setTextColor(168, 85, 247);
+            doc.text("🎵 INTEGRATED CLASSROOM AUDIO / DIALOGUE", pageWidth / 2, y + 11, { align: "center" });
+            
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(8);
+            doc.setTextColor(60, 60, 60);
+            doc.text("Offline-compatible explanation. Click to listen to explanation:", pageWidth / 2, y + 18, { align: "center" });
+            
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(37, 99, 235);
+            doc.textWithLink("Open CDN Audio Link", pageWidth / 2 - 15, y + 25, { url: url });
+            
+            y += boxHeight + 6;
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(9);
+            doc.setTextColor(30, 30, 30);
+          } else if (fileMatch) {
+            const url = fileMatch[1];
+            const boxHeight = 32;
+            checkPageBreak(boxHeight + 10);
+            doc.setDrawColor(14, 165, 233); // sky-500
+            doc.setFillColor(240, 249, 255); // sky-50
+            doc.rect(margin, y, contentWidth, boxHeight, "FD");
+            
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(9);
+            doc.setTextColor(14, 165, 233);
+            doc.text("📁 ATTACHED STUDY SHEET / RESOURCE FILE", pageWidth / 2, y + 11, { align: "center" });
+            
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(8);
+            doc.setTextColor(60, 60, 60);
+            doc.text("Click the link to download or view the reference material:", pageWidth / 2, y + 18, { align: "center" });
+            
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(37, 99, 235);
+            doc.textWithLink("Download Resource File", pageWidth / 2 - 20, y + 25, { url: url });
+            
+            y += boxHeight + 6;
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(9);
+            doc.setTextColor(30, 30, 30);
+          } else if (imgMatch) {
             const alt = imgMatch[1] || "Embedded Diagram";
             const url = imgMatch[2];
             
@@ -2907,7 +3173,9 @@ export default function App() {
                           <div className="bg-black/30 p-6 rounded-xl border border-white/5 text-sm space-y-4 font-sans text-white/85">
                             {selectedLesson.lesson_content ? (
                               <div className="prose prose-invert prose-cyan max-w-none text-white/80 prose-headings:font-mono prose-headings:text-cyan-400 prose-headings:font-bold prose-p:leading-relaxed prose-li:leading-relaxed prose-a:text-cyan-400">
-                                <Markdown>{selectedLesson.lesson_content}</Markdown>
+                                <Markdown components={markdownComponents}>
+                                  {preprocessMarkdown(selectedLesson.lesson_content)}
+                                </Markdown>
                               </div>
                             ) : (
                               <p className="text-white/30 italic font-mono text-xs">No content has been added to this lesson plan yet.</p>
@@ -3012,7 +3280,9 @@ export default function App() {
                                     if (file.type.startsWith("image/")) {
                                       newContent += `\n\n![embedded illustration](${cloudinaryData.secure_url})\n`;
                                     } else if (file.type.startsWith("video/")) {
-                                      newContent += `\n\n<video controls src="${cloudinaryData.secure_url}" className="w-full rounded-lg my-4"></video>\n`;
+                                      newContent += `\n\n[Interactive Video Illustration](${cloudinaryData.secure_url})\n`;
+                                    } else if (file.type.startsWith("audio/")) {
+                                      newContent += `\n\n[Audio Demonstration](${cloudinaryData.secure_url})\n`;
                                     } else {
                                       newContent += `\n\n[Download Attached Media File](${cloudinaryData.secure_url})\n`;
                                     }
@@ -3933,7 +4203,9 @@ export default function App() {
                                   if (file.type.startsWith("image/")) {
                                     setEditLectureContent(prev => prev + `\n\n![embedded illustration](${cloudinaryData.secure_url})\n`);
                                   } else if (file.type.startsWith("video/")) {
-                                    setEditLectureContent(prev => prev + `\n\n<video controls src="${cloudinaryData.secure_url}" className="w-full rounded-lg my-4"></video>\n`);
+                                    setEditLectureContent(prev => prev + `\n\n[Interactive Video Illustration](${cloudinaryData.secure_url})\n`);
+                                  } else if (file.type.startsWith("audio/")) {
+                                    setEditLectureContent(prev => prev + `\n\n[Audio Demonstration](${cloudinaryData.secure_url})\n`);
                                   } else {
                                     setEditLectureContent(prev => prev + `\n\n[Download Attached Media File](${cloudinaryData.secure_url})\n`);
                                   }
@@ -4009,7 +4281,9 @@ export default function App() {
                   ) : (
                     <div className="flex-grow bg-black/40 rounded-xl border border-white/5 p-6 overflow-y-auto max-h-[600px] scrollbar-thin">
                       <div className="markdown-body text-xs text-white/80 space-y-4 leading-relaxed font-sans">
-                        <Markdown>{selectedLecture.content}</Markdown>
+                        <Markdown components={markdownComponents}>
+                          {preprocessMarkdown(selectedLecture.content)}
+                        </Markdown>
                       </div>
                     </div>
                   )}

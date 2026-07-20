@@ -1,0 +1,5 @@
+# Exclude legacy API endpoints from Vercel's Serverless Function builder
+api/syllabi/
+api/lessons/
+api/lectures/
+api/quizzes/
