@@ -36,7 +36,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { jsPDF } from "jspdf";
 import Markdown from "react-markdown";
 import { supabase } from "./lib/supabase";
-import { Lock, Mail, User, LogOut, Key, UploadCloud, Check, FileCheck, ShieldAlert } from "lucide-react";
+import { Lock, Mail, User, LogOut, Key, UploadCloud, Check, FileCheck, ShieldAlert, Edit } from "lucide-react";
 
 // Localized types matching backend schema
 interface Syllabus {
@@ -143,6 +143,63 @@ interface LessonHistoryItem {
   learning_objectives?: string[];
 }
 
+// Helper: Download/Fetch external image URL and convert to base64 DataURL
+async function getBase64ImageFromUrl(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, { referrerPolicy: "no-referrer" });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        resolve(reader.result as string);
+      };
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch (err) {
+    console.error("Failed to get base64 image from url via fetch:", url, err);
+    // Fallback using standard Image element with anonymous crossOrigin
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.setAttribute("crossOrigin", "anonymous");
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth || img.width;
+        canvas.height = img.naturalHeight || img.height;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(img, 0, 0);
+          try {
+            const dataUrl = canvas.toDataURL("image/png");
+            resolve(dataUrl);
+            return;
+          } catch (e) {
+            console.error("Canvas toDataURL failed:", e);
+          }
+        }
+        resolve(null);
+      };
+      img.onerror = () => resolve(null);
+      img.src = url;
+    });
+  }
+}
+
+// Helper: Read dimensions of an image from a base64 string
+function getImageDimensions(base64: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      resolve({ width: img.naturalWidth || img.width, height: img.naturalHeight || img.height });
+    };
+    img.onerror = () => {
+      resolve({ width: 800, height: 450 }); // fallback 16:9
+    };
+    img.src = base64;
+  });
+}
+
 export default function App() {
   // Authentication & RBAC States
   const [user, setUser] = useState<any>(null);
@@ -165,6 +222,10 @@ export default function App() {
   const [isUploadingCloudinary, setIsUploadingCloudinary] = useState(false);
   const [cloudinaryProgress, setCloudinaryProgress] = useState(0);
   const [uploadedCloudinaryUrl, setUploadedCloudinaryUrl] = useState("");
+
+  const [isUploadingLessonMedia, setIsUploadingLessonMedia] = useState(false);
+  const [lessonMediaProgress, setLessonMediaProgress] = useState(0);
+  const [uploadedLessonMediaUrl, setUploadedLessonMediaUrl] = useState("");
 
   // Navigation
   const [activeTab, setActiveTab] = useState<"prep" | "syllabus" | "lecture" | "quiz" | "ledger">("prep");
@@ -707,7 +768,7 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-  const handleDownloadLecturePDF = (lecture: Lecture) => {
+  const handleDownloadLecturePDF = async (lecture: Lecture) => {
     try {
       const doc = new jsPDF({
         orientation: "portrait",
@@ -787,7 +848,63 @@ export default function App() {
       const lines = lecture.content.split("\n");
       for (const line of lines) {
         const trimmed = line.trim();
-        if (trimmed.startsWith("# ")) {
+        if (!trimmed) {
+          y += 3;
+          continue;
+        }
+
+        // Image match regex: ![alt](url)
+        const imgMatch = trimmed.match(/!\[([^\]]*)]\((https?:\/\/[^\s)]+)\)/);
+        if (imgMatch) {
+          const alt = imgMatch[1] || "Embedded Diagram";
+          const url = imgMatch[2];
+          
+          const base64 = await getBase64ImageFromUrl(url);
+          if (base64) {
+            const dimensions = await getImageDimensions(base64);
+            const targetWidth = Math.min(130, contentWidth);
+            const targetHeight = targetWidth * (dimensions.height / dimensions.width);
+            
+            checkPageBreak(targetHeight + 12);
+            const xPos = margin + (contentWidth - targetWidth) / 2;
+            doc.addImage(base64, "PNG", xPos, y, targetWidth, targetHeight);
+            y += targetHeight + 3;
+            
+            checkPageBreak(6);
+            doc.setFont("helvetica", "italic");
+            doc.setFontSize(8);
+            doc.setTextColor(100, 100, 100);
+            doc.text(alt, pageWidth / 2, y + 3, { align: "center" });
+            y += 8;
+            
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(10);
+            doc.setTextColor(30, 30, 30);
+          } else {
+            // High-quality visually styled solid placeholder box
+            const boxHeight = 40;
+            checkPageBreak(boxHeight + 10);
+            doc.setDrawColor(6, 182, 212); // cyan-500
+            doc.setFillColor(248, 250, 252); // slate-50
+            doc.rect(margin, y, contentWidth, boxHeight, "FD");
+            
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(9);
+            doc.setTextColor(6, 182, 212);
+            doc.text(`[MEDIA ILLUSTRATION: ${alt.toUpperCase()}]`, pageWidth / 2, y + 14, { align: "center" });
+            
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(8);
+            doc.setTextColor(120, 120, 120);
+            const wrappedUrl = doc.splitTextToSize(`Source CDN: ${url}`, contentWidth - 20);
+            doc.text(wrappedUrl, pageWidth / 2, y + 24, { align: "center" });
+            
+            y += boxHeight + 6;
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(10);
+            doc.setTextColor(30, 30, 30);
+          }
+        } else if (trimmed.startsWith("# ")) {
           const text = trimmed.replace("# ", "");
           checkPageBreak(12);
           y += 4;
@@ -831,15 +948,13 @@ export default function App() {
           const splitLines = doc.splitTextToSize(text, contentWidth - 6);
           doc.text(splitLines, margin + 6, y);
           y += (splitLines.length * 5);
-        } else if (trimmed) {
+        } else {
           const text = trimmed;
           const cleanText = text.replace(/\*\*/g, "");
           const splitLines = doc.splitTextToSize(cleanText, contentWidth);
           checkPageBreak(splitLines.length * 5);
           doc.text(splitLines, margin, y);
           y += (splitLines.length * 5) + 2;
-        } else {
-          y += 3;
         }
       }
 
@@ -1107,6 +1222,72 @@ export default function App() {
     }
   };
 
+  const uploadToCloudinaryDirectly = async (
+    file: File,
+    folder: string,
+    resourceType: string = "auto",
+    onProgress?: (progress: number) => void
+  ): Promise<{ secure_url: string; public_id: string }> => {
+    // 1. Get signature from backend
+    const signatureRes = await fetch("/api/cloudinary-signature", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ folder }),
+    });
+    
+    if (!signatureRes.ok) {
+      const errorData = await signatureRes.json();
+      throw new Error(errorData.error || "Failed to retrieve secure upload credentials from server.");
+    }
+    
+    const { signature, timestamp, cloudName, apiKey } = await signatureRes.json();
+
+    // 2. Perform direct upload to Cloudinary using XMLHttpRequest to get real-time upload progress
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`);
+
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable && onProgress) {
+          const percent = Math.round((event.loaded / event.total) * 100);
+          onProgress(percent);
+        }
+      };
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const data = JSON.parse(xhr.responseText);
+            resolve({
+              secure_url: data.secure_url,
+              public_id: data.public_id,
+            });
+          } catch (e) {
+            reject(new Error("Failed to parse Cloudinary response."));
+          }
+        } else {
+          try {
+            const errorData = JSON.parse(xhr.responseText);
+            reject(new Error(errorData.error?.message || "Direct upload to Cloudinary failed."));
+          } catch (e) {
+            reject(new Error(`Direct upload to Cloudinary failed with status: ${xhr.status}`));
+          }
+        }
+      };
+
+      xhr.onerror = () => reject(new Error("Network error occurred during direct Cloudinary upload."));
+
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("api_key", apiKey);
+      formData.append("timestamp", timestamp.toString());
+      formData.append("signature", signature);
+      formData.append("folder", folder);
+
+      xhr.send(formData);
+    });
+  };
+
   const uploadSyllabusFile = async (file: File) => {
     // Basic file type validation
     const allowedExtensions = [".pdf", ".docx", ".doc", ".txt"];
@@ -1117,33 +1298,40 @@ export default function App() {
       return;
     }
 
-    if (file.size > 15 * 1024 * 1024) {
-      setUploadError("File size exceeds 15MB limit.");
+    if (file.size > 500 * 1024 * 1024) {
+      setUploadError("File size exceeds 500MB limit.");
       return;
     }
 
     setUploadError(null);
-    setUploadProgress(10); // Start simulation or initial upload handshake
-
-    const formData = new FormData();
-    formData.append("file", file);
+    setUploadProgress(5);
 
     try {
-      // Setup dynamic progress updates to reassure user during index phase
-      const progressInterval = setInterval(() => {
-        setUploadProgress(prev => {
-          if (prev === null) return null;
-          if (prev < 90) return prev + 10;
-          return prev;
-        });
-      }, 800);
+      // 1. Upload directly to Cloudinary
+      const cloudinaryData = await uploadToCloudinaryDirectly(
+        file,
+        "minesec_syllabi",
+        "raw",
+        (p) => {
+          // Map Cloudinary progress (0-100) to (10-85) to leave room for backend processing / indexing
+          const mappedProgress = Math.min(85, 10 + Math.round((p / 100) * 75));
+          setUploadProgress(mappedProgress);
+        }
+      );
 
+      setUploadProgress(85);
+
+      // 2. Send Cloudinary reference URL to backend for text extraction and Gemini alignment indexing
       const response = await fetch("/api/syllabi/upload", {
         method: "POST",
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileUrl: cloudinaryData.secure_url,
+          fileName: file.name,
+          fileType: file.type || "application/pdf",
+          fileSize: file.size,
+        }),
       });
-
-      clearInterval(progressInterval);
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -1248,7 +1436,7 @@ export default function App() {
     }
   };
 
-  const handleDownloadPDF = () => {
+  const handleDownloadPDF = async () => {
     if (!selectedLesson) return;
     
     try {
@@ -1417,14 +1605,65 @@ export default function App() {
         doc.setFontSize(9);
         doc.setFont("helvetica", "normal");
         
-        lines.forEach((line: string) => {
+        for (const line of lines) {
           const trimmed = line.trim();
           if (!trimmed) {
             y += 3;
-            return;
+            continue;
           }
 
-          if (trimmed.startsWith("###")) {
+          // Image match regex: ![alt](url)
+          const imgMatch = trimmed.match(/!\[([^\]]*)]\((https?:\/\/[^\s)]+)\)/);
+          if (imgMatch) {
+            const alt = imgMatch[1] || "Embedded Diagram";
+            const url = imgMatch[2];
+            
+            const base64 = await getBase64ImageFromUrl(url);
+            if (base64) {
+              const dimensions = await getImageDimensions(base64);
+              const targetWidth = Math.min(130, contentWidth);
+              const targetHeight = targetWidth * (dimensions.height / dimensions.width);
+              
+              checkPageBreak(targetHeight + 12);
+              const xPos = margin + (contentWidth - targetWidth) / 2;
+              doc.addImage(base64, "PNG", xPos, y, targetWidth, targetHeight);
+              y += targetHeight + 3;
+              
+              checkPageBreak(6);
+              doc.setFont("helvetica", "italic");
+              doc.setFontSize(8);
+              doc.setTextColor(100, 100, 100);
+              doc.text(alt, pageWidth / 2, y + 3, { align: "center" });
+              y += 8;
+              
+              doc.setFont("helvetica", "normal");
+              doc.setFontSize(9);
+              doc.setTextColor(30, 30, 30);
+            } else {
+              // High-quality visually styled solid placeholder box
+              const boxHeight = 40;
+              checkPageBreak(boxHeight + 10);
+              doc.setDrawColor(6, 182, 212); // cyan-500
+              doc.setFillColor(248, 250, 252); // slate-50
+              doc.rect(margin, y, contentWidth, boxHeight, "FD");
+              
+              doc.setFont("helvetica", "bold");
+              doc.setFontSize(9);
+              doc.setTextColor(6, 182, 212);
+              doc.text(`[MEDIA ILLUSTRATION: ${alt.toUpperCase()}]`, pageWidth / 2, y + 14, { align: "center" });
+              
+              doc.setFont("helvetica", "normal");
+              doc.setFontSize(8);
+              doc.setTextColor(120, 120, 120);
+              const wrappedUrl = doc.splitTextToSize(`Source CDN: ${url}`, contentWidth - 20);
+              doc.text(wrappedUrl, pageWidth / 2, y + 24, { align: "center" });
+              
+              y += boxHeight + 6;
+              doc.setFont("helvetica", "normal");
+              doc.setFontSize(9);
+              doc.setTextColor(30, 30, 30);
+            }
+          } else if (trimmed.startsWith("###")) {
             checkPageBreak(10);
             doc.setFont("helvetica", "bold");
             doc.setFontSize(10);
@@ -1467,7 +1706,7 @@ export default function App() {
             doc.text(paraLines, margin, y);
             y += (paraLines.length * 4.5) + 2.5;
           }
-        });
+        }
         y += 4;
       } else {
         doc.setFont("helvetica", "italic");
@@ -2716,6 +2955,100 @@ export default function App() {
                           <span>Write content or use generated layout below (Supports Markdown)</span>
                           <span>Auto-saved to Neon DB live</span>
                         </div>
+
+                        {/* Cloudinary Image Uploader Widget for Lessons */}
+                        <div className="p-3 bg-white/[0.02] border border-white/5 rounded-xl space-y-2 mb-1">
+                          <div className="flex justify-between items-center">
+                            <h4 className="text-[10px] font-bold font-mono uppercase tracking-wider text-cyan-400 flex items-center gap-1">
+                              <UploadCloud className="w-3.5 h-3.5" />
+                              Cloudinary Lesson Diagram & Media Embedder
+                            </h4>
+                            <span className="text-[9px] font-mono text-white/30">Max 500MB • Image/Media</span>
+                          </div>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+                            <div>
+                              <input
+                                type="file"
+                                accept="image/*,video/*,audio/*"
+                                onChange={async (e) => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) return;
+
+                                  if (file.size > 500 * 1024 * 1024) {
+                                    showNotification("error", "File size exceeds 500MB limit.");
+                                    return;
+                                  }
+
+                                  setIsUploadingLessonMedia(true);
+                                  setLessonMediaProgress(10);
+                                  try {
+                                    const folderName = file.type.startsWith("image/") ? "minesec_images" : "minesec_media";
+                                    const resourceType = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "auto";
+                                    
+                                    const cloudinaryData = await uploadToCloudinaryDirectly(
+                                      file,
+                                      folderName,
+                                      resourceType,
+                                      (p) => setLessonMediaProgress(p)
+                                    );
+                                    
+                                    setLessonMediaProgress(100);
+                                    setUploadedLessonMediaUrl(cloudinaryData.secure_url);
+                                    
+                                    // Append to Lesson Content Markdown
+                                    let newContent = selectedLesson.lesson_content || "";
+                                    if (file.type.startsWith("image/")) {
+                                      newContent += `\n\n![embedded illustration](${cloudinaryData.secure_url})\n`;
+                                    } else if (file.type.startsWith("video/")) {
+                                      newContent += `\n\n<video controls src="${cloudinaryData.secure_url}" className="w-full rounded-lg my-4"></video>\n`;
+                                    } else {
+                                      newContent += `\n\n[Download Attached Media File](${cloudinaryData.secure_url})\n`;
+                                    }
+                                    handleLessonChange("lesson_content", newContent);
+                                    
+                                    showNotification("success", "Media uploaded and embedded in Lesson Plan!");
+                                  } catch (err: any) {
+                                    showNotification("error", "Upload failed: " + err.message);
+                                  } finally {
+                                    setIsUploadingLessonMedia(false);
+                                    setLessonMediaProgress(0);
+                                  }
+                                }}
+                                className="block w-full text-xs text-white/40 font-mono
+                                  file:mr-3 file:py-1 file:px-2.5
+                                  file:rounded-md file:border-0
+                                  file:text-[10px] file:font-mono file:font-bold
+                                  file:bg-cyan-500/10 file:text-cyan-400
+                                  hover:file:bg-cyan-500/20 file:cursor-pointer"
+                              />
+                              <p className="text-[9px] text-white/30 mt-1">
+                                Upload diagrams or illustration models to automatically generate a CDN link and embed it in this Lesson Plan's PDF.
+                              </p>
+                            </div>
+
+                            {isUploadingLessonMedia && (
+                              <div className="bg-black/50 p-2.5 rounded-lg border border-cyan-500/25 flex flex-col justify-center items-center text-center space-y-1">
+                                <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />
+                                <span className="text-[9px] font-mono text-cyan-400 font-bold uppercase">Uploading to Cloudinary...</span>
+                                <div className="w-full bg-white/5 h-1 rounded-full overflow-hidden mt-1">
+                                  <div className="bg-cyan-400 h-full transition-all duration-300" style={{ width: `${lessonMediaProgress}%` }}></div>
+                                </div>
+                              </div>
+                            )}
+
+                            {!isUploadingLessonMedia && uploadedLessonMediaUrl && (
+                              <div className="bg-white/[0.01] p-2 rounded-lg border border-white/5 flex items-center gap-2">
+                                <img src={uploadedLessonMediaUrl} alt="Preview" className="w-10 h-10 object-cover rounded border border-white/10" referrerPolicy="no-referrer" />
+                                <div className="flex-grow min-w-0">
+                                  <span className="text-[8px] font-mono text-emerald-400 font-bold uppercase block">Embedded Successfully</span>
+                                  <span className="text-[8px] font-mono text-white/30 truncate block">{uploadedLessonMediaUrl}</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
                         <textarea
                           id="lesson-markdown-textarea"
                           value={selectedLesson.lesson_content}
@@ -3549,40 +3882,52 @@ export default function App() {
                       <div className="p-4 bg-white/[0.02] border border-white/5 rounded-xl space-y-3">
                         <div className="flex justify-between items-center">
                           <h4 className="text-[10px] font-bold font-mono uppercase tracking-wider text-cyan-400 flex items-center gap-1">
-                            <Image className="w-3.5 h-3.5" />
+                            <UploadCloud className="w-3.5 h-3.5" />
                             Cloudinary Media illustration Embedder
                           </h4>
-                          <span className="text-[9px] font-mono text-white/30">Max 5MB • PNG/JPG</span>
+                          <span className="text-[9px] font-mono text-white/30">Max 500MB • Image/Media</span>
                         </div>
                         
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
                           <div>
                             <input
                               type="file"
-                              accept="image/*"
+                              accept="image/*,video/*,audio/*"
                               onChange={async (e) => {
                                 const file = e.target.files?.[0];
                                 if (!file) return;
+
+                                if (file.size > 500 * 1024 * 1024) {
+                                  showNotification("error", "File size exceeds 500MB limit.");
+                                  return;
+                                }
+
                                 setIsUploadingCloudinary(true);
-                                setCloudinaryProgress(20);
+                                setCloudinaryProgress(10);
                                 try {
-                                  const formData = new FormData();
-                                  formData.append("image", file);
+                                  const folderName = file.type.startsWith("image/") ? "minesec_images" : "minesec_media";
+                                  const resourceType = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "auto";
                                   
-                                  setCloudinaryProgress(50);
-                                  const res = await fetch("/api/upload-image", {
-                                    method: "POST",
-                                    body: formData
-                                  });
-                                  setCloudinaryProgress(80);
-                                  if (!res.ok) throw new Error("Upload server rejected file");
-                                  const data = await res.json();
+                                  const cloudinaryData = await uploadToCloudinaryDirectly(
+                                    file,
+                                    folderName,
+                                    resourceType,
+                                    (p) => setCloudinaryProgress(p)
+                                  );
                                   
                                   setCloudinaryProgress(100);
-                                  setUploadedCloudinaryUrl(data.url);
+                                  setUploadedCloudinaryUrl(cloudinaryData.secure_url);
+                                  
                                   // Append to editor
-                                  setEditLectureContent(prev => prev + `\n\n![embedded illustration](${data.url})\n`);
-                                  showNotification("success", "Illustration uploaded and embedded in Markdown!");
+                                  if (file.type.startsWith("image/")) {
+                                    setEditLectureContent(prev => prev + `\n\n![embedded illustration](${cloudinaryData.secure_url})\n`);
+                                  } else if (file.type.startsWith("video/")) {
+                                    setEditLectureContent(prev => prev + `\n\n<video controls src="${cloudinaryData.secure_url}" className="w-full rounded-lg my-4"></video>\n`);
+                                  } else {
+                                    setEditLectureContent(prev => prev + `\n\n[Download Attached Media File](${cloudinaryData.secure_url})\n`);
+                                  }
+                                  
+                                  showNotification("success", "Media uploaded and embedded in Markdown!");
                                 } catch (err: any) {
                                   showNotification("error", "Upload failed: " + err.message);
                                 } finally {

@@ -1,0 +1,163 @@
+{
+  "syllabi": [
+    {
+      "id": 1,
+      "title": "Construction and Materials Syllabus - Terminale F4 (Building Construction / Civil Engineering)",
+      "subject": "Construction and Materials",
+      "class_level": "Terminale F4 (Building Construction / Civil Engineering)",
+      "academic_year": "2025/2026",
+      "file_url": "https://res.cloudinary.com/vx70nmfp/raw/upload/v1784478457/minesec_syllabi/top62rhveespju2pniuj.pdf",
+      "file_name": "Building-Construction-technology_lect1.pdf",
+      "file_type": "application/pdf",
+      "file_size": 1567174,
+      "status": "published",
+      "extracted_metadata": {
+        "subject": "Construction and Materials",
+        "classLevel": "Terminale F4 (Building Construction / Civil Engineering)",
+        "competencies": [
+          "Analyze historical and contemporary developments in construction technology",
+          "Evaluate building assemblies and structural systems holistically",
+          "Integrate sustainable construction strategies and resource-efficient materials",
+          "Collaborate across architectural and engineering disciplines for system design"
+        ],
+        "modules": [
+          {
+            "title": "Development of Construction Technologies",
+            "description": "Examines the historical drivers and obstacles of innovation in building technology from the 20th century to the present day.",
+            "objectives": [
+              "Identify drivers of innovation such as industrialization, materials science, and computational technology",
+              "Understand historical obstacles, including industry fragmentation and specialized design consultancy",
+              "Assess contemporary global market demands and technological transfer in materials and process engineering"
+            ]
+          },
+          {
+            "title": "Statics of Architectural Structures",
+            "description": "Introduces basic structural morphology, equilibrium conditions, and load-transfer mechanisms of architectural components.",
+            "objectives": [
+              "Understand structural morphology and basic structural elements",
+              "Formulate and solve equilibrium equations for basic force systems",
+              "Analyze material behavior under architectural dead and live loads"
+            ]
+          },
+          {
+            "title": "Elements of Building and Building Systems",
+            "description": "Explores the systematic organization, performance requirements, lifetimes, cost implications, and standard specifications of core building assemblies.",
+            "objectives": [
+              "Define and classify building systems: foundations, superstructure, exterior envelope, interior partitions, and mechanical systems",
+              "Analyze the lifetime, durability, and cost over time for each primary building system",
+              "Apply Construction Specifications Institute (CSI) Division placements to building materials and systems"
+            ]
+          },
+          {
+            "title": "Sustainable Strategies and Systems Integration",
+            "description": "Analyzes building energy usage, resource efficiency, and the synergistic integration of architectural systems based on standard performance mandates.",
+            "objectives": [
+              "Evaluate international and domestic energy consumption trends related to buildings",
+              "Identify and implement resource-efficient strategies, low-e materials, and end-of-life materials reuse",
+              "Integrate the six performance mandates: spatial, thermal, air quality, acoustical, visual, and building integrity"
+            ]
+          }
+        ],
+        "academicYear": "2025/2026",
+        "assessmentCriteria": [
+          "Ability to analyze structural statics and material behavior in architectural contexts",
+          "Proper classification and specification of materials based on CSI division standards",
+          "Integration of structural, envelope, and environmental control systems in design assignments",
+          "Inclusion of sustainable construction strategies and life-cycle costing in final solutions"
+        ],
+        "curriculumStructure": "The curriculum is structured into three progressive components: introducing core architectural principles and technical evolution, teaching structural mechanics and materials behavior, and analyzing the engineering, performance, and specification of integrated building systems.",
+        "gradingStandards": [
+          "Familiarity with functional and performance requirements of architectural assemblies",
+          "Demonstration of a collaborative approach to solving multi-disciplinary construction situations",
+          "Quality, logic, and completeness in practical design/build exercises",
+          "Creativity and engineering rigor in building systems integration"
+        ],
+        "learningOutcomes": [
+          "Familiarity with functional and technical requirements of complex architectural assemblies",
+          "Clear understanding of the construction process and the design-to-build workflow",
+          "Ability to identify opportunities for engineering and material invention within standard codes",
+          "Development of practical collaboration strategies between construction and design disciplines"
+        ]
+      },
+      "created_at": "2026-07-19T16:27:59.064Z",
+      "updated_at": "2026-07-19T16:27:59.064Z"
+    },
+    {
+      "id": 2,
+      "title": "Construction and Materials Syllabus - Upper Sixth (Civil Engineering)",
+      "subject": "Construction and Materials",
+      "class_level": "Upper Sixth (Civil Engineering)",
+      "academic_year": "2025/2026",
+      "file_url": "https://res.cloudinary.com/vx70nmfp/raw/upload/v1784478514/minesec_syllabi/hwotuv50iiiqgbz5wa8l.pdf",
+      "file_name": "Building-Construction-technology_lect1.pdf",
+      "file_type": "application/pdf",
+      "file_size": 1567174,
+      "status": "published",
+      "extracted_metadata": {
+        "subject": "Construction and Materials",
+        "classLevel": "Upper Sixth (Civil Engineering)",
+        "competencies": [
+          "Analyze the cultural, historical, and technical evolution of building structures",
+          "Apply structural mechanics, including statics, equilibrium equations, and material behavior, to design building systems",
+          "Integrate core building subsystems into holistic, sustainable, and resource-efficient architectural assemblies",
+          "Apply Construction Specifications Institute (CSI) specifications to define and catalog building elements"
+        ],
+        "modules": [
+          {
+            "title": "Principles and Scope of Building Technology",
+            "description": "Exploration of the cultural context of technology, holistic design principles, statics of architectural structures, and sustainable resource strategies.",
+            "objectives": [
+              "Explain how contemporary technology derives from historical and cultural evolution",
+              "Formulate basic equilibrium equations and evaluate material behavior under force systems",
+              "Identify best practice sustainable strategies and resource-efficient processes in architectural structures"
+            ]
+          },
+          {
+            "title": "Development and Innovation in Construction Technologies",
+            "description": "A study of historical and modern drivers for innovation in construction, encompassing materials science, computational technologies, and the barriers to industry-wide development.",
+            "objectives": [
+              "Analyze the drivers of innovation such as industrialization, modularization, and materials science",
+              "Contrast technological successes and failures in construction between 1900 and 1980",
+              "Evaluate contemporary barriers to innovation, including fragmentation of design processes and low R&D investment"
+            ]
+          },
+          {
+            "title": "Elements of Building Systems and Specifications",
+            "description": "Detailed examination of the primary physical components of building construction and their classification according to professional specification codes.",
+            "objectives": [
+              "Define the six core building systems: Foundation, Superstructure, Exterior Envelope, Interior Partitions, Mechanical Systems, and Furnishings",
+              "Compare the expected lifespans and relative cost percentages of primary building components over time",
+              "Map building systems to their respective Construction Specifications Institute (CSI) Division specifications"
+            ]
+          }
+        ],
+        "academicYear": "2025/2026",
+        "assessmentCriteria": [
+          "Accuracy in applying structural equilibrium equations and analyzing material behaviors",
+          "Integration level of building subsystems (Site, Structure, Skin, Space Plan, Services, Stuff) in technical drawings and design schemes",
+          "Correct assignment of Construction Specifications Institute (CSI) Division codes to specified materials",
+          "Inclusion of sustainable, resource-efficient strategies in student project solutions"
+        ],
+        "curriculumStructure": "The curriculum is structured into three parts: Course Principles & Scope, Historical and Modern Technological Developments, and Building Elements & Subsystems Integrated with Professional Specifications.",
+        "gradingStandards": [
+          "Evaluation of student-designed integrated building system projects",
+          "Assessment of practical problem-solving in architectural statics and structural morphology",
+          "Grading of written coursework and technical documentation accuracy"
+        ],
+        "learningOutcomes": [
+          "Familiarity with the technical and performance requirements of architectural assemblies",
+          "Understanding of a broad range of standard and advanced design solutions",
+          "Ability to analyze contemporary issues and design-construction workflows",
+          "Capability to coordinate across architectural, structural, and mechanical disciplines"
+        ]
+      },
+      "created_at": "2026-07-19T16:28:50.316Z",
+      "updated_at": "2026-07-19T16:28:50.316Z"
+    }
+  ],
+  "lessons": [],
+  "lesson_history": [],
+  "lectures": [],
+  "quizzes": [],
+  "quiz_results": []
+}

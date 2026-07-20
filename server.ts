@@ -17,7 +17,7 @@ dotenv.config();
 const { Pool } = pg;
 
 // 1. Initialize API Clients and Database Pool
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 const app = express();
 
 app.use(express.json({ limit: "50mb" }));
@@ -32,8 +32,50 @@ const ai = process.env.GEMINI_API_KEY
           "User-Agent": "aistudio-build",
         },
       },
-    })
+  })
   : null;
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function generateContentWithFallback({
+  contents,
+  config
+}: {
+  contents: any;
+  config: any;
+}) {
+  if (!ai) {
+    throw new Error("Gemini AI API Key is not configured.");
+  }
+
+  const modelsToTry = ["gemini-3.5-flash", "gemini-3.1-flash-lite"];
+  let lastError: any = null;
+
+  for (const modelName of modelsToTry) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        console.log(`[Gemini API] Attempting content generation with ${modelName} (attempt ${attempt}/2)...`);
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents,
+          config,
+        });
+        console.log(`[Gemini API] Success using ${modelName}`);
+        return response;
+      } catch (err: any) {
+        const errMsg = err?.message || JSON.stringify(err);
+        console.log(`[Gemini API] Attempt ${attempt} with ${modelName} failed. Error: ${errMsg}`);
+        lastError = err;
+        if (attempt < 2) {
+          const sleepTime = attempt * 1500;
+          await delay(sleepTime);
+        }
+      }
+    }
+  }
+
+  throw lastError || new Error("Failed to generate content with any model.");
+}
 
 // Initialize Cloudinary
 if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
@@ -48,7 +90,9 @@ if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && proce
 }
 
 // --- Begin Robust Local JSON Database Fallback Implementation ---
-const DB_FILE = path.join(process.cwd(), "minesec_db.json");
+const DB_FILE = process.env.VERCEL
+  ? path.join("/tmp", "minesec_db.json")
+  : path.join(process.cwd(), "minesec_db.json");
 
 interface DBData {
   syllabi: any[];
@@ -476,67 +520,29 @@ class JsonDb {
   }
 }
 
-const jsonDb = new JsonDb();
-let isFallbackMode = false;
-// --- End Robust Local JSON Database Fallback Implementation ---
+// Initialize PostgreSQL Pool (Neon / Cloud SQL)
+function getCleanedDatabaseUrl() {
+  let url = process.env.DATABASE_URL;
+  if (url && url.startsWith("DATABASE_URL=")) {
+    url = url.substring("DATABASE_URL=".length);
+  }
+  return url;
+}
 
-// Initialize PostgreSQL Pool (Neon)
+const cleanedDbUrl = getCleanedDatabaseUrl();
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL?.includes("sslmode=require") || process.env.DATABASE_URL?.includes("neon")
+  connectionString: cleanedDbUrl,
+  ssl: cleanedDbUrl?.includes("sslmode=require") || cleanedDbUrl?.includes("neon")
     ? { rejectUnauthorized: false }
     : undefined,
 });
 
-// Wrap pool methods
-const originalQuery = pool.query.bind(pool);
-pool.query = async function (text: any, params?: any[]) {
-  if (isFallbackMode) {
-    return jsonDb.query(text, params);
-  }
-  try {
-    return await originalQuery(text, params);
-  } catch (err: any) {
-    if (
-      err.message.includes("connect") ||
-      err.message.includes("ECONNREFUSED") ||
-      err.message.includes("getaddrinfo") ||
-      err.message.includes("EAI_AGAIN")
-    ) {
-      console.log("Database fallback active.");
-      isFallbackMode = true;
-      return jsonDb.query(text, params);
-    }
-    throw err;
-  }
-} as any;
-
-const originalConnect = pool.connect.bind(pool);
-pool.connect = async function() {
-  if (isFallbackMode) {
-    return {
-      query: async (text: any, params?: any[]) => jsonDb.query(text, params),
-      release: () => {},
-    } as any;
-  }
-  try {
-    return await originalConnect();
-  } catch (err: any) {
-    console.log("Database initialized in fallback JSON mode.");
-    isFallbackMode = true;
-    return {
-      query: async (text: any, params?: any[]) => jsonDb.query(text, params),
-      release: () => {},
-    } as any;
-  }
-} as any;
-
 // Database Auto-Initialization
 async function initDatabase() {
-  if (!process.env.DATABASE_URL) {
-    console.log("DATABASE_URL not set, using fallback JSON mode.");
-    isFallbackMode = true;
-    return;
+  const cleanedUrl = getCleanedDatabaseUrl();
+  if (!cleanedUrl) {
+    throw new Error("DATABASE_URL is not set. A live Neon PostgreSQL database is required for this application.");
   }
   try {
     const client = await pool.connect();
@@ -645,14 +651,16 @@ async function initDatabase() {
 
     client.release();
     console.log("Database tables initialized successfully.");
-  } catch (err) {
-    console.log("Database initialized in fallback JSON mode.");
-    isFallbackMode = true;
+  } catch (err: any) {
+    console.error("Database initialization failed:", err);
+    throw err;
   }
 }
 
 // 2. Multer Setup for Stream-To-Disk (Avoids Not Enough Memory issues)
-const uploadDir = path.join(process.cwd(), "tmp-uploads");
+const uploadDir = process.env.VERCEL
+  ? "/tmp"
+  : path.join(process.cwd(), "tmp-uploads");
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
@@ -669,8 +677,19 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 15 * 1024 * 1024 }, // 15MB file size limit
+  limits: { fileSize: 500 * 1024 * 1024 }, // 500MB file size limit
 });
+
+// Helper: Download file from external URL to local temp directory
+async function downloadFileFromUrl(url: string, destPath: string): Promise<void> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to download file from Cloudinary: ${response.statusText}`);
+  }
+  const arrayBuffer = await response.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  fs.writeFileSync(destPath, buffer);
+}
 
 // Helper: Parse Document Text from File Path
 async function extractTextFromFile(filePath: string, fileType: string): Promise<string> {
@@ -693,9 +712,35 @@ async function extractTextFromFile(filePath: string, fileType: string): Promise<
 app.get("/api/health", (req, res) => {
   res.json({
     status: "ok",
-    database: process.env.DATABASE_URL ? "configured" : "missing",
+    database: getCleanedDatabaseUrl() ? "configured" : "missing",
     cloudinary: process.env.CLOUDINARY_CLOUD_NAME ? "configured" : "missing",
     gemini: process.env.GEMINI_API_KEY ? "configured" : "missing",
+  });
+});
+
+// Generate Cloudinary Signature for Direct Client-Side Uploads (bypasses serverless file size limits)
+app.post("/api/cloudinary-signature", (req, res) => {
+  const { folder } = req.body;
+  if (!process.env.CLOUDINARY_API_SECRET || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_CLOUD_NAME) {
+    return res.status(500).json({ error: "Cloudinary credentials are not configured on the server." });
+  }
+
+  const timestamp = Math.round(new Date().getTime() / 1000);
+  const targetFolder = folder || "minesec_general";
+
+  const paramsToSign = {
+    timestamp: timestamp,
+    folder: targetFolder,
+  };
+
+  const signature = cloudinary.utils.api_sign_request(paramsToSign, process.env.CLOUDINARY_API_SECRET);
+
+  res.json({
+    signature,
+    timestamp,
+    cloudName: process.env.CLOUDINARY_CLOUD_NAME,
+    apiKey: process.env.CLOUDINARY_API_KEY,
+    folder: targetFolder,
   });
 });
 
@@ -733,21 +778,41 @@ app.get("/api/syllabi/:id", async (req, res) => {
 
 // Create and Index Syllabus (Secure upload & parse)
 app.post("/api/syllabi/upload", upload.single("file"), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: "No file was uploaded." });
-  }
-
-  const filePath = req.file.path;
-  const fileName = req.file.originalname;
-  const fileType = req.file.mimetype;
-  const fileSize = req.file.size;
-
-  let cloudinaryResult: any = null;
-  let rawText = "";
+  let filePath = "";
+  let fileName = "";
+  let fileType = "";
+  let fileSize = 0;
+  let fileUrl = "";
+  let isDownloaded = false;
 
   try {
-    // 1. Upload to Cloudinary securely
-    if (process.env.CLOUDINARY_CLOUD_NAME) {
+    if (req.file) {
+      filePath = req.file.path;
+      fileName = req.file.originalname;
+      fileType = req.file.mimetype;
+      fileSize = req.file.size;
+    } else if (req.body && req.body.fileUrl) {
+      fileUrl = req.body.fileUrl;
+      fileName = req.body.fileName || "syllabus.pdf";
+      fileType = req.body.fileType || "application/pdf";
+      fileSize = req.body.fileSize || 0;
+
+      // Download file to temp path for text extraction
+      const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+      filePath = path.join(uploadDir, "download-" + uniqueSuffix + path.extname(fileName));
+      
+      console.log(`[Syllabus Upload] Downloading file from direct Cloudinary URL: ${fileUrl} to ${filePath}`);
+      await downloadFileFromUrl(fileUrl, filePath);
+      isDownloaded = true;
+    } else {
+      return res.status(400).json({ error: "No file was uploaded or fileUrl provided." });
+    }
+
+    let cloudinaryResult: any = null;
+    let rawText = "";
+
+    // 1. Upload to Cloudinary securely if uploaded locally
+    if (req.file && process.env.CLOUDINARY_CLOUD_NAME) {
       cloudinaryResult = await new Promise((resolve, reject) => {
         cloudinary.uploader.upload(
           filePath,
@@ -758,6 +823,7 @@ app.post("/api/syllabi/upload", upload.single("file"), async (req, res) => {
           }
         );
       });
+      fileUrl = cloudinaryResult?.secure_url || "";
     }
 
     // 2. Parse text from document safely
@@ -810,8 +876,7 @@ app.post("/api/syllabi/upload", upload.single("file"), async (req, res) => {
       }
     `;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+    const response = await generateContentWithFallback({
       contents: indexingPrompt,
       config: {
         responseMimeType: "application/json",
@@ -847,7 +912,7 @@ app.post("/api/syllabi/upload", upload.single("file"), async (req, res) => {
     const parsedMetadata = JSON.parse(response.text?.trim() || "{}");
 
     // 4. Save Syllabus and Metadata to Neon Database
-    const fileUrl = cloudinaryResult?.secure_url || "";
+    const finalFileUrl = fileUrl || (cloudinaryResult?.secure_url || "");
     const insertQuery = `
       INSERT INTO syllabi (title, subject, class_level, academic_year, file_url, file_name, file_type, file_size, status, extracted_metadata)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -859,7 +924,7 @@ app.post("/api/syllabi/upload", upload.single("file"), async (req, res) => {
       parsedMetadata.subject,
       parsedMetadata.classLevel,
       parsedMetadata.academicYear || "2025/2026",
-      fileUrl,
+      finalFileUrl,
       fileName,
       fileType,
       fileSize,
@@ -875,8 +940,12 @@ app.post("/api/syllabi/upload", upload.single("file"), async (req, res) => {
     res.status(500).json({ error: error.message || "Failed to process and index the syllabus." });
   } finally {
     // Always clean up temp file to prevent memory and disk leaks
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
+    if (filePath && (req.file || isDownloaded) && fs.existsSync(filePath)) {
+      try {
+        fs.unlinkSync(filePath);
+      } catch (e) {
+        console.error("Failed to delete temp file:", e);
+      }
     }
   }
 });
@@ -1072,7 +1141,7 @@ app.post("/api/lessons/generate", async (req, res) => {
     // 2. Build CBA Aligned Lesson Plan Prompt
     const lessonPrompt = `
       You are an expert AI Curriculum Designer and Pedagogy Specialist in the Cameroon Ministry of Secondary Education (MINESEC).
-      Generate a comprehensive and detailed lesson plan aligned with the Competency-Based Approach (CBA).
+      Generate an exceptionally engaging, comprehensive, and detailed lesson plan aligned with the Competency-Based Approach (CBA).
       
       Topic: ${topic}
       Lesson Title: ${title}
@@ -1087,11 +1156,16 @@ app.post("/api/lessons/generate", async (req, res) => {
       2. Define specific Learning Objectives (Cognitive, Psychomotor, Affective).
       3. Map prerequisite knowledge/skills (Prerequisites).
       4. Detail the pedagogical process step-by-step:
-         - Introduction & Brainstorming (Motivate & Hook)
-         - Core lesson content & structured knowledge development
-         - Application / Guided Activities / Practical Exercise (Critical in Technical/General CBA)
-         - Consolidation & Conclusion
+         - Introduction & Brainstorming (Motivate & Hook): Include a lively, student-centered "Hook" or puzzle using relatable real-world Cameroonian examples.
+         - Core lesson content & structured knowledge development.
+         - Application / Guided Activities / Practical Exercise (Critical in Technical/General CBA): Design interactive student-led tasks, gamified class challenges, or hands-on simulations that keep the classroom lively.
+         - Consolidation & Conclusion: Summarize key takeaways with positive, encouraging teacher messages.
       5. Include Assessment Data (Formative diagnostic questions or quiz, summative exercises, evaluation grids).
+      
+      CRITICAL ENGAGEMENT GUIDELINES:
+      - Use lively, student-friendly, and highly encouraging language.
+      - Incorporate rich local Cameroonian context, local names (e.g. Amadou, Chi, Brenda, Ngo), local industries, or landmarks.
+      - Add creative "💡 Active Classroom Pause" check-in blocks where students pair up, discuss, or practice a quick challenge together.
       
       You must respond strictly with a JSON object formatted as follows (without markdown wrappers):
       {
@@ -1111,8 +1185,7 @@ app.post("/api/lessons/generate", async (req, res) => {
       }
     `;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+    const response = await generateContentWithFallback({
       contents: lessonPrompt,
       config: {
         responseMimeType: "application/json",
@@ -1510,7 +1583,7 @@ app.post("/api/lectures/generate", async (req, res) => {
 
     const lecturePrompt = `
       You are an expert AI Educator, Curriculum Developer, and Pedagogy Specialist specializing in the Cameroon Ministry of Secondary Education (MINESEC) standard.
-      Generate a highly comprehensive, detailed, and academically rigorous lecture note or textbook-quality content based on the provided topic.
+      Generate an exceptionally engaging, highly comprehensive, detailed, and academically rigorous lecture note or textbook-quality content based on the provided topic.
 
       Topic: ${topic}
       Subject: ${finalSubject}
@@ -1523,14 +1596,17 @@ app.post("/api/lectures/generate", async (req, res) => {
       Requirements:
       1. Write clear, structured content using standard Markdown.
       2. Keep explanations theoretically sound, explaining formulas, core proofs, or definitions beautifully.
-      3. Use relevant local Cameroonian examples, context, or illustrations where appropriate (e.g. Cameroonian industries, geographical contexts, local history, or currency where appropriate) to make it highly engaging and context-aware.
-      4. Include:
-         - A clean introductory section (Motivate the student)
+      3. Use relevant local Cameroonian examples, context, or illustrations (e.g. Cameroonian industries, regional agricultural products, local architecture, or currency) to make it highly engaging and context-aware.
+      4. Incorporate highly encouraging and supportive language throughout to make the classroom feel lively. Add engaging periodic callout cards inside the markdown like:
+         - **💡 CBA Active Thinker Check**: A quick thought-provoking question for students.
+         - **⭐ Pro-Tip**: To keep students excited and validated.
+      5. Include:
+         - A clean introductory section (Motivate and hook the student with real-world applications)
          - Core Concepts and Definitions
          - In-depth lecture body (subsections, headings, formulas, tables, bullet points)
-         - Worked Examples (step-by-step solutions)
+         - Worked Examples (step-by-step encouraging solutions)
          - Practical work / Exercises for students to solve
-         - A structured summary of key takeaways
+         - A structured summary of key takeaways (using encouraging words)
          - Suggested further readings.
       
       You must respond strictly with a JSON object formatted as follows:
@@ -1542,8 +1618,7 @@ app.post("/api/lectures/generate", async (req, res) => {
       }
     `;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+    const response = await generateContentWithFallback({
       contents: lecturePrompt,
       config: {
         responseMimeType: "application/json",
@@ -1692,7 +1767,7 @@ app.post("/api/quizzes/generate", async (req, res) => {
 
     const quizPrompt = `
       You are an expert AI Evaluator and Pedagogy Specialist specializing in the Cameroon Ministry of Secondary Education (MINESEC) Competency Based Approach (CBA).
-      Generate a professional, rigorous evaluation quiz based on the following context.
+      Generate an exceptionally engaging, professional, and rigorous evaluation quiz based on the following context.
 
       Topic: ${topic}
       Subject: ${finalSubject}
@@ -1704,6 +1779,11 @@ app.post("/api/quizzes/generate", async (req, res) => {
       ${syllabusContextPrompt}
       ${lessonContextPrompt}
       Custom Directives & Guidelines: ${customDirectives || "None"}
+
+      CRITICAL ENGAGEMENT GUIDELINES:
+      - Design evaluation questions that are highly interesting, realistic, and scenario-based (e.g. "Brenda is building a bridge in Limbe...", "Amadou is auditing a cocoa drying farm in Bafoussam...").
+      - Make the question tone lively and encouraging.
+      - Ensure the explanation field contains highly supportive, positive, and educational feedback (e.g. starts with "Awesome choice! This validates..." or "Great effort! Remember that...").
 
       Format your response strictly as a JSON object with the following schema:
       {
@@ -1718,14 +1798,13 @@ app.post("/api/quizzes/generate", async (req, res) => {
             "question": "A complete, professionally written evaluation question",
             "options": ["Option A", "Option B", "Option C", "Option D"], // MUST have exactly 4 items for MCQ. For TF, MUST have ["True", "False"]. For SA, leave empty []
             "correctAnswer": "A", // Option letter 'A', 'B', 'C', 'D' for MCQ. 'True' or 'False' for TF. Clear answer word or phrase for SA.
-            "explanation": "CBA alignment explanation explaining why the answer is correct and what specific competency is evaluated."
+            "explanation": "Constructive CBA alignment explanation starting with encouraging words and explaining why the answer is correct."
           }
         ]
       }
     `;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+    const response = await generateContentWithFallback({
       contents: quizPrompt,
       config: {
         responseMimeType: "application/json",
@@ -1802,9 +1881,20 @@ app.delete("/api/quizzes/:id", async (req, res) => {
 // VITE CLIENT DEV MIDDLEWARE & DIST STATIC
 // ==========================================
 
-async function startServer() {
-  await initDatabase();
+let dbInitialized = false;
+app.use(async (req, res, next) => {
+  if (!dbInitialized) {
+    try {
+      await initDatabase();
+      dbInitialized = true;
+    } catch (err) {
+      console.error("Delayed database initialization failed:", err);
+    }
+  }
+  next();
+});
 
+async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -1824,4 +1914,8 @@ async function startServer() {
   });
 }
 
-startServer();
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+export default app;
