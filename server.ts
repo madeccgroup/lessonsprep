@@ -531,12 +531,20 @@ function getCleanedDatabaseUrl() {
 
 const cleanedDbUrl = getCleanedDatabaseUrl();
 
-const pool = new Pool({
-  connectionString: cleanedDbUrl,
-  ssl: cleanedDbUrl?.includes("sslmode=require") || cleanedDbUrl?.includes("neon")
-    ? { rejectUnauthorized: false }
-    : undefined,
-});
+let pool: any = cleanedDbUrl
+  ? new Pool({
+      connectionString: cleanedDbUrl,
+      connectionTimeoutMillis: 5000,
+      ssl: cleanedDbUrl.includes("sslmode=require") || cleanedDbUrl.includes("neon")
+        ? { rejectUnauthorized: false }
+        : undefined,
+    })
+  : null;
+
+// Initialize as JsonDb immediately if no DB URL is set
+if (!pool) {
+  pool = new JsonDb();
+}
 
 // Database Auto-Initialization
 async function initDatabase() {
@@ -1092,7 +1100,7 @@ app.post("/api/lessons", async (req, res) => {
     // Create the initial history version
     await pool.query(
       `INSERT INTO lesson_history (lesson_id, version, title, lesson_content, competency_mapping, learning_objectives) VALUES ($1, 1, $2, $3, $4, $5)`,
-      [newLesson.id, newLesson.title, newLesson.lesson_content, newLesson.competency_mapping, newLesson.learning_objectives]
+      [newLesson.id, newLesson.title, newLesson.lesson_content, JSON.stringify(newLesson.competency_mapping), JSON.stringify(newLesson.learning_objectives)]
     );
 
     res.status(201).json(newLesson);
@@ -1246,7 +1254,7 @@ app.post("/api/lessons/generate", async (req, res) => {
     // Create historic backup for version 1
     await pool.query(
       `INSERT INTO lesson_history (lesson_id, version, title, lesson_content, competency_mapping, learning_objectives) VALUES ($1, 1, $2, $3, $4, $5)`,
-      [newLesson.id, newLesson.title, newLesson.lesson_content, newLesson.competency_mapping, newLesson.learning_objectives]
+      [newLesson.id, newLesson.title, newLesson.lesson_content, JSON.stringify(newLesson.competency_mapping), JSON.stringify(newLesson.learning_objectives)]
     );
 
     res.status(201).json(newLesson);
@@ -1395,7 +1403,7 @@ app.post("/api/lessons/:id/duplicate", async (req, res) => {
     // Initial version history
     await pool.query(
       `INSERT INTO lesson_history (lesson_id, version, title, lesson_content, competency_mapping, learning_objectives) VALUES ($1, 1, $2, $3, $4, $5)`,
-      [dup.id, dup.title, dup.lesson_content, dup.competency_mapping, dup.learning_objectives]
+      [dup.id, dup.title, dup.lesson_content, JSON.stringify(dup.competency_mapping), JSON.stringify(dup.learning_objectives)]
     );
 
     res.status(201).json(dup);
@@ -1883,10 +1891,21 @@ let dbInitialized = false;
 app.use(async (req, res, next) => {
   if (!dbInitialized) {
     try {
-      await initDatabase();
+      const cleanedUrl = getCleanedDatabaseUrl();
+      if (cleanedUrl) {
+        await initDatabase();
+      } else {
+        console.log("[Database] DATABASE_URL is not set. Operating in local JSON database mode.");
+        if (!(pool instanceof JsonDb)) {
+          pool = new JsonDb();
+        }
+      }
       dbInitialized = true;
     } catch (err) {
       console.error("Delayed database initialization failed:", err);
+      console.log("[Database] Falling back to local JSON database mode due to initialization failure.");
+      pool = new JsonDb();
+      dbInitialized = true;
     }
   }
   next();
